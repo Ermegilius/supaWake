@@ -5,6 +5,7 @@ interface Project {
   id: number;
   ref: string;
   label: string | null;
+  api_key: string | null;
   last_pinged_at: string | null;
   last_status: number | null;
   created_at: string;
@@ -24,9 +25,12 @@ function normalizeRef(input: string): string {
   throw new Error('Invalid Supabase project reference. Use "xyzabcdef" or "https://xyzabcdef.supabase.co"');
 }
 
-async function pingRef(ref: string): Promise<number> {
+async function pingRef(ref: string, apiKey?: string | null): Promise<number> {
   try {
+    const headers: Record<string, string> = {};
+    if (apiKey) headers['apikey'] = apiKey;
     const res = await fetch(`https://${ref}.supabase.co/auth/v1/health`, {
+      headers,
       signal: AbortSignal.timeout(10000),
     });
     return res.status;
@@ -59,22 +63,22 @@ export default async function handler(req: Request, _context: Context) {
 
   try {
     if (req.method === 'POST' && id && isPing) {
-      const body = await req.json().catch(() => ({})) as { ref?: string };
+      const body = await req.json().catch(() => ({})) as { ref?: string; api_key?: string };
       const projects = await getProjects(store);
       const project = projects.find(p => p.id === id);
 
       if (!project) {
         if (!body.ref) return Response.json({ message: 'Not found' }, { status: 404, headers: CORS });
-        const status = await pingRef(body.ref);
+        const status = await pingRef(body.ref, body.api_key);
         return Response.json({
-          id, ref: body.ref, label: null,
+          id, ref: body.ref, label: null, api_key: body.api_key ?? null,
           last_pinged_at: new Date().toISOString(),
           last_status: status,
           created_at: new Date().toISOString(),
         }, { headers: CORS });
       }
 
-      project.last_status = await pingRef(project.ref);
+      project.last_status = await pingRef(project.ref, project.api_key);
       project.last_pinged_at = new Date().toISOString();
       await saveProjects(store, projects);
       return Response.json(project, { headers: CORS });
@@ -103,6 +107,7 @@ export default async function handler(req: Request, _context: Context) {
         id: maxId + 1,
         ref: normalized,
         label: body.label ?? null,
+        api_key: body.api_key?.trim() || null,
         last_pinged_at: null,
         last_status: null,
         created_at: new Date().toISOString(),
