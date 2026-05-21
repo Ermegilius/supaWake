@@ -3,7 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import Database from 'better-sqlite3';
 import * as path from 'path';
 
-interface Project {
+export interface Project {
   id: number;
   ref: string;
   label: string | null;

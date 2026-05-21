@@ -9,7 +9,7 @@ interface Project {
 }
 
 export default async function handler() {
-  const store = getStore('projects');
+  const store = getStore({ name: 'projects', consistency: 'strong' });
   const projects: Project[] = (await store.get('list', { type: 'json' })) ?? [];
 
   console.log(`[cron] Pinging ${projects.length} project(s)...`);

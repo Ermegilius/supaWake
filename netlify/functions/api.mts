@@ -44,8 +44,8 @@ async function saveProjects(store: ReturnType<typeof getStore>, projects: Projec
   await store.set('list', JSON.stringify(projects));
 }
 
-export default async function handler(req: Request, context: Context) {
-  const store = getStore('projects');
+export default async function handler(req: Request, _context: Context) {
+  const store = getStore({ name: 'projects', consistency: 'strong' });
   const url = new URL(req.url);
   const path = url.pathname;
 
@@ -59,9 +59,21 @@ export default async function handler(req: Request, context: Context) {
 
   try {
     if (req.method === 'POST' && id && isPing) {
+      const body = await req.json().catch(() => ({})) as { ref?: string };
       const projects = await getProjects(store);
       const project = projects.find(p => p.id === id);
-      if (!project) return new Response('Not found', { status: 404, headers: CORS });
+
+      if (!project) {
+        if (!body.ref) return Response.json({ message: 'Not found' }, { status: 404, headers: CORS });
+        const status = await pingRef(body.ref);
+        return Response.json({
+          id, ref: body.ref, label: null,
+          last_pinged_at: new Date().toISOString(),
+          last_status: status,
+          created_at: new Date().toISOString(),
+        }, { headers: CORS });
+      }
+
       project.last_status = await pingRef(project.ref);
       project.last_pinged_at = new Date().toISOString();
       await saveProjects(store, projects);

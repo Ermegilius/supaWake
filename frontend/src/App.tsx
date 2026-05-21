@@ -33,124 +33,156 @@ export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [ref, setRef] = useState('');
   const [label, setLabel] = useState('');
-  const [adding, setAdding] = useState(false);
-  const [pinging, setPinging] = useState<number | null>(null);
+  const [busy, setBusy] = useState(true);
+  const [activePing, setActivePing] = useState<number | null>(null);
   const [error, setError] = useState('');
 
   async function load() {
-    const res = await fetch(API);
-    setProjects(await res.json());
+    setBusy(true);
+    try {
+      const res = await fetch(API);
+      setProjects(await res.json());
+    } finally {
+      setBusy(false);
+    }
   }
 
   useEffect(() => { load(); }, []);
 
   async function add() {
     setError('');
-    if (!ref.trim()) return;
-    setAdding(true);
+    if (!ref.trim() || busy) return;
+    setBusy(true);
     try {
       const res = await fetch(API, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ref: ref.trim(), label: label.trim() || undefined }),
       });
-      if (!res.ok) {
-        const body = await res.json();
-        throw new Error(body.message ?? 'Failed to add project');
-      }
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.message ?? 'Failed to add project');
+      setProjects(prev => [body, ...prev]);
       setRef('');
       setLabel('');
-      await load();
     } catch (e: any) {
       setError(e.message);
     } finally {
-      setAdding(false);
+      setBusy(false);
     }
   }
 
   async function remove(id: number) {
-    await fetch(`${API}/${id}`, { method: 'DELETE' });
-    await load();
+    if (busy) return;
+    setBusy(true);
+    try {
+      await fetch(`${API}/${id}`, { method: 'DELETE' });
+      setProjects(prev => prev.filter(p => p.id !== id));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function ping(id: number) {
-    setPinging(id);
-    await fetch(`${API}/${id}/ping`, { method: 'POST' });
-    await load();
-    setPinging(null);
+    if (busy) return;
+    setBusy(true);
+    setActivePing(id);
+    try {
+      const project = projects.find(p => p.id === id);
+      const res = await fetch(`${API}/${id}/ping`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ref: project?.ref }),
+      });
+      if (!res.ok) return;
+      const updated = await res.json();
+      setProjects(prev => prev.map(p => p.id === id ? updated : p));
+    } finally {
+      setBusy(false);
+      setActivePing(null);
+    }
   }
 
   return (
-    <div style={{ maxWidth: 680, margin: '0 auto', padding: '2rem 1rem', fontFamily: 'system-ui, sans-serif' }}>
-      <h1 style={{ fontSize: '2rem', marginBottom: 4 }}>supaWake</h1>
-      <p style={{ color: '#666', marginBottom: '2rem', marginTop: 0 }}>
-        Keeps your Supabase free-tier projects alive — auto-pings every 3 days.
-      </p>
+    <>
+      {/* Loading bar */}
+      <div style={{
+        position: 'fixed', top: 0, left: 0, right: 0, height: 3,
+        background: busy ? '#3ecf8e' : 'transparent',
+        transition: 'background 0.2s',
+        zIndex: 999,
+      }} />
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-        <input
-          placeholder="Project ref or URL  (e.g. abcdefghijklmnop)"
-          value={ref}
-          onChange={e => setRef(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && add()}
-          style={inputStyle}
-        />
-        <input
-          placeholder="Label (optional)"
-          value={label}
-          onChange={e => setLabel(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && add()}
-          style={{ ...inputStyle, flex: '1 1 140px' }}
-        />
-        <button onClick={add} disabled={adding} style={addBtnStyle}>
-          {adding ? '...' : 'Add'}
-        </button>
-      </div>
+      <div style={{
+        maxWidth: 680, margin: '0 auto', padding: '2rem 1rem',
+        fontFamily: 'system-ui, sans-serif',
+        opacity: busy ? 0.6 : 1,
+        transition: 'opacity 0.15s',
+        pointerEvents: busy ? 'none' : 'auto',
+      }}>
+        <h1 style={{ fontSize: '2rem', marginBottom: 4 }}>supaWake</h1>
+        <p style={{ color: '#666', marginBottom: '2rem', marginTop: 0 }}>
+          Keeps your Supabase free-tier projects alive — auto-pings every 3 days.
+        </p>
 
-      {error && <p style={{ color: '#e74c3c', fontSize: 13, margin: '0 0 12px' }}>{error}</p>}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+          <input
+            placeholder="Project ref or URL  (e.g. abcdefghijklmnop)"
+            value={ref}
+            onChange={e => setRef(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && add()}
+            style={inputStyle}
+          />
+          <input
+            placeholder="Label (optional)"
+            value={label}
+            onChange={e => setLabel(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && add()}
+            style={{ ...inputStyle, flex: '1 1 140px' }}
+          />
+          <button onClick={add} style={addBtnStyle}>Add</button>
+        </div>
 
-      {projects.length === 0 ? (
-        <p style={{ color: '#aaa', marginTop: '3rem', textAlign: 'center' }}>No projects yet.</p>
-      ) : (
-        <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-          {projects.map(p => {
-            const badge = statusBadge(p.last_status);
-            return (
-              <li key={p.id} style={rowStyle}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600 }}>{p.label || p.ref}</div>
-                  {p.label && (
-                    <div style={{ fontSize: 12, color: '#999' }}>{p.ref}.supabase.co</div>
-                  )}
-                  <div style={{ fontSize: 12, color: '#bbb', marginTop: 2 }}>
-                    last ping: {timeAgo(p.last_pinged_at)}
-                    {p.last_status !== null && (
-                      <span style={{ marginLeft: 8, color: badge.color, fontWeight: 600 }}>
-                        {badge.text}
-                      </span>
+        {error && <p style={{ color: '#e74c3c', fontSize: 13, margin: '0 0 12px' }}>{error}</p>}
+
+        {projects.length === 0 && !busy ? (
+          <p style={{ color: '#aaa', marginTop: '3rem', textAlign: 'center' }}>No projects yet.</p>
+        ) : (
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+            {projects.map(p => {
+              const badge = statusBadge(p.last_status);
+              return (
+                <li key={p.id} style={rowStyle}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600 }}>{p.label || p.ref}</div>
+                    {p.label && (
+                      <div style={{ fontSize: 12, color: '#999' }}>{p.ref}.supabase.co</div>
                     )}
+                    <div style={{ fontSize: 12, color: '#bbb', marginTop: 2 }}>
+                      last ping: {timeAgo(p.last_pinged_at)}
+                      {p.last_status !== null && (
+                        <span style={{ marginLeft: 8, color: badge.color, fontWeight: 600 }}>
+                          {badge.text}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </div>
-                <button
-                  onClick={() => ping(p.id)}
-                  disabled={pinging === p.id}
-                  style={pingBtnStyle}
-                >
-                  {pinging === p.id ? '...' : 'Ping now'}
-                </button>
-                <button onClick={() => remove(p.id)} style={removeBtnStyle}>
-                  Remove
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+                  <button onClick={() => ping(p.id)} style={pingBtnStyle}>
+                    {activePing === p.id ? '...' : 'Ping now'}
+                  </button>
+                  <button onClick={() => remove(p.id)} style={removeBtnStyle}>
+                    Remove
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
 
-      <p style={{ color: '#ddd', fontSize: 12, marginTop: '3rem', textAlign: 'center' }}>
-        auto-pings /auth/v1/health every 3 days
-      </p>
-    </div>
+        <p style={{ color: '#ddd', fontSize: 12, marginTop: '3rem', textAlign: 'center' }}>
+          auto-pings /auth/v1/health every 3 days
+        </p>
+      </div>
+    </>
   );
 }
 
