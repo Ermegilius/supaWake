@@ -9,7 +9,7 @@ interface Project {
   created_at: string;
 }
 
-const API = '/projects';
+const API = '/api/projects';
 
 function statusBadge(status: number | null): { text: string; color: string } {
   if (status === null) return { text: 'never pinged', color: '#aaa' };
