@@ -1,5 +1,5 @@
-import type { Config } from '@netlify/functions';
-import { getStore } from '@netlify/blobs';
+import type { Config } from "@netlify/functions";
+import { getStore } from "@netlify/blobs";
 
 interface Project {
   id: number;
@@ -10,19 +10,24 @@ interface Project {
 }
 
 export default async function handler() {
-  const store = getStore({ name: 'projects', consistency: 'strong' });
-  const projects: Project[] = (await store.get('list', { type: 'json' })) ?? [];
+  const store = getStore({ name: "projects", consistency: "strong" });
+  const projects: Project[] = (await store.get("list", { type: "json" })) ?? [];
 
   console.log(`[cron] Pinging ${projects.length} project(s)...`);
 
   for (const project of projects) {
     try {
       const headers: Record<string, string> = {};
-      if (project.api_key) headers['apikey'] = project.api_key;
-      const res = await fetch(`https://${project.ref}.supabase.co/auth/v1/health`, {
-        headers,
-        signal: AbortSignal.timeout(10000),
-      });
+      if (project.api_key) headers["apikey"] = project.api_key;
+      // Storage bucket list hits `storage.buckets` in Postgres — guaranteed
+      // real DB connection with zero setup required on the user's project.
+      const res = await fetch(
+        `https://${project.ref}.supabase.co/storage/v1/bucket`,
+        {
+          headers,
+          signal: AbortSignal.timeout(10000),
+        },
+      );
       project.last_status = res.status;
     } catch {
       project.last_status = 0;
@@ -31,9 +36,9 @@ export default async function handler() {
     console.log(`[cron] ${project.ref} -> ${project.last_status}`);
   }
 
-  await store.set('list', JSON.stringify(projects));
+  await store.set("list", JSON.stringify(projects));
 }
 
 export const config: Config = {
-  schedule: '0 0 */3 * *',
+  schedule: "0 0 */3 * *",
 };

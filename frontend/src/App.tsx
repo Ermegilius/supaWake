@@ -107,6 +107,7 @@ export default function App() {
       });
       if (!res.ok) return;
       const updated = await res.json();
+      console.log(`[supaWake] ping response for ${updated.ref}:`, updated.supabase_body);
       setProjects((prev) => prev.map((p) => (p.id === id ? updated : p)));
     } finally {
       setBusy(false);

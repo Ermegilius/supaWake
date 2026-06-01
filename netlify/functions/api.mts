@@ -25,17 +25,18 @@ function normalizeRef(input: string): string {
   throw new Error('Invalid Supabase project reference. Use "xyzabcdef" or "https://xyzabcdef.supabase.co"');
 }
 
-async function pingRef(ref: string, apiKey?: string | null): Promise<number> {
+async function pingRef(ref: string, apiKey?: string | null): Promise<{ status: number; body: unknown }> {
   try {
     const headers: Record<string, string> = {};
     if (apiKey) headers['apikey'] = apiKey;
-    const res = await fetch(`https://${ref}.supabase.co/auth/v1/health`, {
+    const res = await fetch(`https://${ref}.supabase.co/storage/v1/bucket`, {
       headers,
       signal: AbortSignal.timeout(10000),
     });
-    return res.status;
+    const body = await res.json().catch(() => null);
+    return { status: res.status, body };
   } catch {
-    return 0;
+    return { status: 0, body: null };
   }
 }
 
@@ -69,19 +70,21 @@ export default async function handler(req: Request, _context: Context) {
 
       if (!project) {
         if (!body.ref) return Response.json({ message: 'Not found' }, { status: 404, headers: CORS });
-        const status = await pingRef(body.ref, body.api_key);
+        const { status, body: supabaseBody } = await pingRef(body.ref, body.api_key);
         return Response.json({
           id, ref: body.ref, label: null, api_key: body.api_key ?? null,
           last_pinged_at: new Date().toISOString(),
           last_status: status,
+          supabase_body: supabaseBody,
           created_at: new Date().toISOString(),
         }, { headers: CORS });
       }
 
-      project.last_status = await pingRef(project.ref, project.api_key);
+      const { status: pingStatus, body: supabaseBody } = await pingRef(project.ref, project.api_key);
+      project.last_status = pingStatus;
       project.last_pinged_at = new Date().toISOString();
       await saveProjects(store, projects);
-      return Response.json(project, { headers: CORS });
+      return Response.json({ ...project, supabase_body: supabaseBody }, { headers: CORS });
     }
 
     if (req.method === 'DELETE' && id) {

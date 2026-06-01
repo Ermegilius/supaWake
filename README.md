@@ -4,9 +4,11 @@ Keeps your Supabase free-tier projects alive by auto-pinging every 3 days.
 
 **Live app:** <https://supa-wake.netlify.app>
 
-Supabase pauses free projects after 7 days of inactivity. supaWake hits the
-`/auth/v1/health` endpoint on each registered project on a 3-day cron schedule
-(`0 0 */3 * *`), resetting the idle timer before it expires.
+Supabase pauses free projects after 7 days of inactivity. supaWake pings the
+Storage API (`/storage/v1/bucket`) on each registered project every 3 days
+(`0 0 */3 * *`). Listing buckets queries the `storage.buckets` Postgres table,
+making a real DB connection that resets the idle timer — no setup required on
+the user's project.
 
 ## How it works
 
