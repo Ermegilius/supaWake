@@ -160,6 +160,23 @@ supaWake/
 └── package.json       # Root deps: @netlify/blobs, @netlify/functions
 ```
 
+## Disclaimer
+
+supaWake is an independent, unofficial project. It is not affiliated with,
+endorsed by, or sponsored by Supabase, Inc. "Supabase" is a trademark of its
+respective owner and is used here only to describe interoperability.
+
+This tool generates activity on **your own** Supabase projects using **your
+own** public API keys. Keeping a free-tier project artificially active may
+conflict with Supabase's Terms of Service or Acceptable Use Policy. You are
+solely responsible for reviewing those terms and for how you use this tool. It
+is provided "as is", without warranty of any kind, and the author accepts no
+liability.
+
+## License
+
+Licensed under the MIT License. See [LICENSE](LICENSE).
+
 ## Author
 
 Built by **Vladimir Beliakov** ([@Ermegilius](https://github.com/Ermegilius)).

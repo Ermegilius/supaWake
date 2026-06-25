@@ -1,6 +1,7 @@
 {
   "name": "supawake",
   "version": "1.0.0",
+  "license": "MIT",
   "dependencies": {
     "@netlify/blobs": "^8.0.0",
     "@netlify/functions": "^2.0.0"

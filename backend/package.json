@@ -1,6 +1,7 @@
 {
   "name": "supawake-backend",
   "version": "1.0.0",
+  "license": "MIT",
   "scripts": {
     "start": "nest start",
     "start:dev": "nest start --watch",

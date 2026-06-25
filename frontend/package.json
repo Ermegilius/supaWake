@@ -2,6 +2,7 @@
   "name": "supawake-frontend",
   "version": "1.0.0",
   "type": "module",
+  "license": "MIT",
   "scripts": {
     "dev": "vite",
     "build": "npx vite build",
