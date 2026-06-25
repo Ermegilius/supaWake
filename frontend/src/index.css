@@ -1,0 +1,144 @@
+@import "tailwindcss";
+
+/* ------------------------------------------------------------------ *
+ * supaWake pixel-art "flashlight in the dark" theme.
+ * The app keeps projects awake; light keeps the Darkness at bay.
+ * ------------------------------------------------------------------ */
+
+@theme {
+  --font-display: "Press Start 2P", monospace;
+  --font-pixel: "VT323", monospace;
+
+  /* Night: Bright Falls after dark */
+  --color-night-950: #06080b;
+  --color-night-900: #0b0f15;
+  --color-night-850: #0f141c;
+  --color-night-800: #141b25;
+  --color-night-700: #1d2733;
+  --color-night-600: #2a3644;
+  --color-night-500: #3b4a5c;
+
+  /* Fog: text */
+  --color-fog-100: #eef3f7;
+  --color-fog-300: #b9c6d2;
+  --color-fog-500: #7e8d9c;
+  --color-fog-700: #55626f;
+
+  /* Beam: the flashlight / "awake" warmth */
+  --color-beam-100: #fff6da;
+  --color-beam-300: #ffe7a0;
+  --color-beam-500: #ffd45e;
+
+  /* Status */
+  --color-wake-400: #5be39b;
+  --color-wake-500: #3ecf8e;
+  --color-dark-500: #e7574f;
+  --color-warn-500: #f0a330;
+}
+
+@layer base {
+  * {
+    image-rendering: pixelated;
+  }
+
+  html {
+    background-color: var(--color-night-950);
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: var(--font-pixel);
+    font-size: 19px;
+    line-height: 1.35;
+    color: var(--color-fog-100);
+    background-color: var(--color-night-950);
+    -webkit-font-smoothing: none;
+    overflow-x: hidden;
+  }
+
+  /* The Darkness creeping in from the edges + faint CRT scanlines. */
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    pointer-events: none;
+    background:
+      radial-gradient(130% 110% at 50% 28%, transparent 52%, rgba(0, 0, 0, 0.72) 100%),
+      repeating-linear-gradient(
+        to bottom,
+        rgba(255, 255, 255, 0.022) 0 1px,
+        transparent 1px 3px
+      );
+  }
+
+  input,
+  select,
+  button {
+    font-family: var(--font-pixel);
+  }
+
+  input::placeholder {
+    color: var(--color-fog-500);
+  }
+
+  /* Respect users who prefer less motion: calm the flashlight + transitions. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+
+  select option {
+    background: var(--color-night-800);
+    color: var(--color-fog-100);
+  }
+}
+
+/* A hard, offset pixel shadow for the blocky "raised sprite" look. */
+@utility pixel-shadow {
+  box-shadow: 4px 4px 0 0 #000;
+}
+
+@utility pixel-shadow-sm {
+  box-shadow: 3px 3px 0 0 rgba(0, 0, 0, 0.7);
+}
+
+/* The flashlight cone: narrow at the top, spilling down over the UI. */
+@utility beam-cone {
+  clip-path: polygon(43% 0, 57% 0, 100% 120%, 0 120%);
+}
+
+@keyframes beam-flicker {
+  0%,
+  88%,
+  100% {
+    opacity: 0.92;
+  }
+  89% {
+    opacity: 0.5;
+  }
+  90% {
+    opacity: 0.85;
+  }
+  91% {
+    opacity: 0.45;
+  }
+  92% {
+    opacity: 0.9;
+  }
+}
+
+@keyframes scan-down {
+  from {
+    transform: translateY(-100%);
+  }
+  to {
+    transform: translateY(2000%);
+  }
+}

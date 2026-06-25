@@ -6,6 +6,8 @@ interface Project {
   ref: string;
   label: string | null;
   api_key: string | null;
+  strategy?: string;
+  wake_email?: string;
   last_pinged_at: string | null;
   last_status: number | null;
   created_at: string;
@@ -25,16 +27,37 @@ function normalizeRef(input: string): string {
   throw new Error('Invalid Supabase project reference. Use "xyzabcdef" or "https://xyzabcdef.supabase.co"');
 }
 
-async function pingRef(ref: string, apiKey?: string | null): Promise<{ status: number; body: unknown }> {
+async function pingRef(
+  ref: string,
+  apiKey: string | null | undefined,
+  strategy: string = 'auth-signup',
+  wakeEmail?: string,
+): Promise<{ status: number; body: unknown }> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (apiKey) headers['apikey'] = apiKey;
+
   try {
-    const headers: Record<string, string> = {};
-    if (apiKey) headers['apikey'] = apiKey;
-    const res = await fetch(`https://${ref}.supabase.co/storage/v1/bucket`, {
-      headers,
-      signal: AbortSignal.timeout(10000),
-    });
+    let res: Response;
+    if (strategy === 'auth-token') {
+      // login probe: SELECT on auth.users, no user created, no email sent
+      res = await fetch(`https://${ref}.supabase.co/auth/v1/token?grant_type=password`, {
+        method: 'POST', headers,
+        body: JSON.stringify({ email: 'supawake-probe@gmail.com', password: 'supawake-probe-v1' }),
+        signal: AbortSignal.timeout(10000),
+      });
+    } else {
+      // default: auth-signup (writes to auth.users, keeps project alive)
+      const email = wakeEmail || 'wake@mailnull.com';
+      res = await fetch(`https://${ref}.supabase.co/auth/v1/signup`, {
+        method: 'POST', headers,
+        body: JSON.stringify({ email, password: 'supawake-keeper-v1' }),
+        signal: AbortSignal.timeout(10000),
+      });
+    }
     const body = await res.json().catch(() => null);
-    return { status: res.status, body };
+    // both strategies hit the DB; surface 401 (bad key) but treat other 4xx as alive
+    const status = res.status === 401 ? 401 : res.status < 500 ? 200 : res.status;
+    return { status, body };
   } catch {
     return { status: 0, body: null };
   }
@@ -64,13 +87,13 @@ export default async function handler(req: Request, _context: Context) {
 
   try {
     if (req.method === 'POST' && id && isPing) {
-      const body = await req.json().catch(() => ({})) as { ref?: string; api_key?: string };
+      const body = await req.json().catch(() => ({})) as { ref?: string; api_key?: string; strategy?: string; wake_email?: string };
       const projects = await getProjects(store);
       const project = projects.find(p => p.id === id);
 
       if (!project) {
         if (!body.ref) return Response.json({ message: 'Not found' }, { status: 404, headers: CORS });
-        const { status, body: supabaseBody } = await pingRef(body.ref, body.api_key);
+        const { status, body: supabaseBody } = await pingRef(body.ref, body.api_key, body.strategy, body.wake_email);
         return Response.json({
           id, ref: body.ref, label: null, api_key: body.api_key ?? null,
           last_pinged_at: new Date().toISOString(),
@@ -80,7 +103,7 @@ export default async function handler(req: Request, _context: Context) {
         }, { headers: CORS });
       }
 
-      const { status: pingStatus, body: supabaseBody } = await pingRef(project.ref, project.api_key);
+      const { status: pingStatus, body: supabaseBody } = await pingRef(project.ref, project.api_key, project.strategy, project.wake_email);
       project.last_status = pingStatus;
       project.last_pinged_at = new Date().toISOString();
       await saveProjects(store, projects);
@@ -111,6 +134,8 @@ export default async function handler(req: Request, _context: Context) {
         ref: normalized,
         label: body.label ?? null,
         api_key: body.api_key?.trim() || null,
+        strategy: body.strategy ?? 'auth-signup',
+        wake_email: body.wake_email || null,
         last_pinged_at: null,
         last_status: null,
         created_at: new Date().toISOString(),

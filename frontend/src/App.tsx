@@ -5,6 +5,7 @@ interface Project {
   ref: string;
   label: string | null;
   api_key: string | null;
+  strategy?: string;
   last_pinged_at: string | null;
   last_status: number | null;
   created_at: string;
@@ -12,18 +13,53 @@ interface Project {
 
 const API = "/api/projects";
 
-function statusBadge(status: number | null): { text: string; color: string } {
-  if (status === null) return { text: "never pinged", color: "#aaa" };
-  if (status === 0) return { text: "unreachable", color: "#e74c3c" };
+const STRATEGY_INFO: Record<string, { what: string; db: string }> = {
+  "auth-signup": {
+    what:
+      "Each ping calls POST /auth/v1/signup with your email. The first ping registers a user; later pings get “user already registered”.",
+    db:
+      "Adds one row to your auth.users table. This write keeps the project awake. Heads-up: if “Confirm email” is on and you don't click the link, Supabase re-sends a confirmation email on every ping (every 3 days). Confirm it once to stop the reminders, or use auth/token instead (no emails).",
+  },
+  "auth-token": {
+    what:
+      "Each ping calls POST /auth/v1/token (login) with throwaway credentials. It always fails with “invalid credentials”.",
+    db:
+      "Runs a read on your auth.users table. No user is created and no email is sent. The read keeps the project awake. Experimental: still being validated.",
+  },
+};
+
+type StatusView = { dot: string; text: string; textCls: string };
+
+function statusView(status: number | null): StatusView {
+  if (status === null)
+    return { dot: "bg-night-500", text: "never pinged", textCls: "text-fog-500" };
+  if (status === 0)
+    return {
+      dot: "bg-dark-500 shadow-[0_0_8px_1px_#e7574f66]",
+      text: "unreachable",
+      textCls: "text-dark-500",
+    };
   if (status === 401)
-    return { text: "401 — missing API key", color: "#e67e22" };
+    return {
+      dot: "bg-warn-500 shadow-[0_0_8px_1px_#f0a33066]",
+      text: "401 no key",
+      textCls: "text-warn-500",
+    };
   if (status >= 200 && status < 300)
-    return { text: `${status} ok`, color: "#27ae60" };
-  return { text: String(status), color: "#f39c12" };
+    return {
+      dot: "bg-wake-400 shadow-[0_0_12px_3px_#5be39b66]",
+      text: `${status} awake`,
+      textCls: "text-wake-400",
+    };
+  return {
+    dot: "bg-warn-500 shadow-[0_0_8px_1px_#f0a33066]",
+    text: String(status),
+    textCls: "text-warn-500",
+  };
 }
 
 function timeAgo(iso: string | null): string {
-  if (!iso) return "—";
+  if (!iso) return "never";
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return "just now";
@@ -33,11 +69,25 @@ function timeAgo(iso: string | null): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
+const inputCls =
+  "w-full bg-night-850 border-2 border-night-600 px-3 py-2 text-fog-100 outline-none transition-colors focus:border-beam-500 focus:ring-2 focus:ring-beam-500/25";
+
+const btnPrimary =
+  "shrink-0 border-2 border-wake-500 bg-wake-500 px-5 py-2 font-bold uppercase tracking-wide text-night-950 pixel-shadow-sm transition-all hover:bg-wake-400 active:translate-x-[3px] active:translate-y-[3px] active:shadow-none";
+
+const btnGhost =
+  "shrink-0 border-2 border-beam-500/70 bg-transparent px-3 py-1.5 uppercase tracking-wide text-beam-300 transition-colors hover:bg-beam-500/10 active:translate-x-[2px] active:translate-y-[2px]";
+
+const btnDanger =
+  "shrink-0 border-2 border-dark-500/60 bg-transparent px-3 py-1.5 uppercase tracking-wide text-dark-500 transition-colors hover:bg-dark-500/10 active:translate-x-[2px] active:translate-y-[2px]";
+
 export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [ref, setRef] = useState("");
   const [label, setLabel] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [strategy, setStrategy] = useState("auth-signup");
+  const [wakeEmail, setWakeEmail] = useState("");
   const [busy, setBusy] = useState(true);
   const [activePing, setActivePing] = useState<number | null>(null);
   const [error, setError] = useState("");
@@ -46,7 +96,10 @@ export default function App() {
     setBusy(true);
     try {
       const res = await fetch(API);
+      if (!res.ok) return;
       setProjects(await res.json());
+    } catch {
+      /* API unavailable; leave list as-is */
     } finally {
       setBusy(false);
     }
@@ -59,6 +112,10 @@ export default function App() {
   async function add() {
     setError("");
     if (!ref.trim() || busy) return;
+    if (strategy === "auth-signup" && !wakeEmail.trim()) {
+      setError("auth/signup requires a real email address.");
+      return;
+    }
     setBusy(true);
     try {
       const res = await fetch(API, {
@@ -68,6 +125,8 @@ export default function App() {
           ref: ref.trim(),
           label: label.trim() || undefined,
           api_key: apiKey.trim() || undefined,
+          strategy,
+          wake_email: wakeEmail.trim() || undefined,
         }),
       });
       const body = await res.json();
@@ -76,6 +135,8 @@ export default function App() {
       setRef("");
       setLabel("");
       setApiKey("");
+      setStrategy("auth-signup");
+      setWakeEmail("");
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -89,6 +150,8 @@ export default function App() {
     try {
       await fetch(`${API}/${id}`, { method: "DELETE" });
       setProjects((prev) => prev.filter((p) => p.id !== id));
+    } catch {
+      /* ignore */
     } finally {
       setBusy(false);
     }
@@ -109,156 +172,182 @@ export default function App() {
       const updated = await res.json();
       console.log(`[supaWake] ping response for ${updated.ref}:`, updated.supabase_body);
       setProjects((prev) => prev.map((p) => (p.id === id ? updated : p)));
+    } catch {
+      /* ignore */
     } finally {
       setBusy(false);
       setActivePing(null);
     }
   }
 
+  function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    add();
+  }
+
+  const info = STRATEGY_INFO[strategy];
+
   return (
     <>
-      <div
-        style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          right: 0,
-          height: 3,
-          background: busy ? "#3ecf8e" : "transparent",
-          transition: "background 0.2s",
-          zIndex: 999,
-        }}
-      />
+      {/* Flashlight beam from above; light keeps the Darkness at bay. */}
+      <div aria-hidden className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
+        <div className="absolute left-1/2 top-0 h-[60vh] w-[120vw] -translate-x-1/2 bg-[radial-gradient(50%_55%_at_50%_0%,rgba(255,224,150,0.16),transparent_70%)]" />
+        <div className="beam-cone absolute left-1/2 top-0 h-[88vh] w-[150vw] -translate-x-1/2 mix-blend-screen bg-[linear-gradient(to_bottom,rgba(255,238,190,0.22),rgba(255,224,150,0.06)_45%,transparent_80%)] animate-[beam-flicker_6s_linear_infinite]" />
+      </div>
 
-      <div
-        style={{
-          maxWidth: 680,
-          margin: "0 auto",
-          padding: "2rem 1rem",
-          fontFamily: "system-ui, sans-serif",
-          opacity: busy ? 0.6 : 1,
-          transition: "opacity 0.15s",
-          pointerEvents: busy ? "none" : "auto",
-        }}
+      {/* Busy indicator: a thin beam line. */}
+      <div aria-hidden className="fixed inset-x-0 top-0 z-50 h-[3px] overflow-hidden">
+        <div className={`h-full ${busy ? "bg-beam-500 animate-pulse" : "bg-transparent"}`} />
+      </div>
+
+      <main
+        aria-busy={busy}
+        className={`relative z-10 mx-auto max-w-2xl px-4 py-12 transition-opacity duration-150 ${
+          busy ? "pointer-events-none opacity-60" : "opacity-100"
+        }`}
       >
-        <h1 style={{ fontSize: "2rem", marginBottom: 4 }}>supaWake</h1>
-        <p style={{ color: "#666", marginBottom: "2rem", marginTop: 0 }}>
-          Keeps your Supabase free-tier projects alive, auto-pings every 3 days.
-        </p>
-
-        {/* Row 1: ref + label + Add */}
-        <div
-          style={{ display: "flex", gap: 8, marginBottom: 6, flexWrap: "wrap" }}
-        >
-          <input
-            placeholder='Project ref or URL  (e.g. abcdefghijklmnop)'
-            value={ref}
-            onChange={(e) => setRef(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && add()}
-            style={inputStyle}
-          />
-          <input
-            placeholder='Label (optional)'
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && add()}
-            style={{ ...inputStyle, flex: "1 1 140px" }}
-          />
-          <button onClick={add} style={addBtnStyle}>
-            Add
-          </button>
-        </div>
-
-        {/* Row 2: API key */}
-        <input
-          placeholder='Anon or Publishable key from Supabase → Project Settings → API Keys'
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && add()}
-          style={{
-            ...inputStyle,
-            flex: "unset",
-            width: "100%",
-            boxSizing: "border-box",
-            marginBottom: 4,
-            fontFamily: "monospace",
-            fontSize: 12,
-          }}
-        />
-        <p
-          style={{
-            margin: "0 0 8px",
-            fontSize: 11,
-            color: "#e74c3c",
-            fontWeight: 600,
-          }}
-        >
-          ⚠ DO NOT INPUT SECRET KEYS OR SERVICE ROLE KEYS HERE, anon /
-          publishable keys only. This is a public app.
-        </p>
-
-        {error && (
-          <p style={{ color: "#e74c3c", fontSize: 13, margin: "0 0 12px" }}>
-            {error}
+        <header className="mb-9 text-center">
+          <h1 className="font-display text-xl text-beam-100 [text-shadow:0_0_18px_#ffe7a0aa,4px_4px_0_#000] sm:text-2xl">
+            supaWake
+          </h1>
+          <p className="mt-4 text-lg text-fog-500">
+            Keeps your Supabase free-tier projects awake. Auto-pings every 3 days.
           </p>
-        )}
+        </header>
+
+        <form
+          onSubmit={onSubmit}
+          className="border-2 border-night-600 bg-night-900/85 p-4 pixel-shadow backdrop-blur-sm"
+        >
+          {/* Row 1: ref + label + Add */}
+          <div className="mb-2 flex flex-wrap gap-2">
+            <input
+              aria-label="Supabase project ref or URL"
+              placeholder="Project ref or URL"
+              value={ref}
+              onChange={(e) => setRef(e.target.value)}
+              className={`${inputCls} flex-[2_1_220px]`}
+            />
+            <input
+              aria-label="Project label (optional)"
+              placeholder="Label (optional)"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              className={`${inputCls} flex-[1_1_120px]`}
+            />
+            <button type="submit" className={btnPrimary}>
+              Add
+            </button>
+          </div>
+
+          {/* Row 2: strategy */}
+          <select
+            aria-label="Ping strategy"
+            value={strategy}
+            onChange={(e) => setStrategy(e.target.value)}
+            className={`${inputCls} mb-2 cursor-pointer`}
+          >
+            <option value="auth-signup">auth/signup (default, needs real email)</option>
+            <option value="auth-token">auth/token (login probe, testing)</option>
+          </select>
+
+          {info && (
+            <div className="mb-2 border-l-2 border-beam-500 bg-night-850 px-3 py-2 text-base leading-relaxed text-fog-500">
+              <p>{info.what}</p>
+              <p className="mt-1.5">
+                <span className="text-beam-300">Your database:</span> {info.db}
+              </p>
+            </div>
+          )}
+
+          {strategy === "auth-signup" && (
+            <input
+              type="email"
+              aria-label="Your real email (required for auth/signup)"
+              placeholder="Your real email (required for auth/signup)"
+              value={wakeEmail}
+              onChange={(e) => setWakeEmail(e.target.value)}
+              className={`${inputCls} mb-2`}
+            />
+          )}
+
+          {/* Row 3: API key */}
+          <input
+            aria-label="Anon or publishable API key"
+            placeholder="Anon / Publishable key (Settings → API Keys)"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            className={`${inputCls} mb-2`}
+          />
+
+          <p className="border-2 border-dark-500/40 bg-dark-500/10 px-3 py-2 text-sm uppercase tracking-wide text-dark-500">
+            ⚠ Do not input secret or service-role keys here. Anon / publishable
+            keys only. This is a public app.
+          </p>
+
+          {error && (
+            <p role="alert" className="mt-3 text-base text-dark-500">
+              {error}
+            </p>
+          )}
+        </form>
 
         {projects.length === 0 && !busy ? (
-          <p style={{ color: "#aaa", marginTop: "3rem", textAlign: "center" }}>
-            No projects yet.
+          <p className="mt-12 text-center text-lg text-fog-500">
+            No projects yet. Nothing to keep awake.
           </p>
         ) : (
-          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+          <ul className="mt-6 flex flex-col gap-2">
             {projects.map((p) => {
-              const badge = statusBadge(p.last_status);
+              const s = statusView(p.last_status);
               return (
-                <li key={p.id} style={rowStyle}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
-                      style={{
-                        fontWeight: 600,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 6,
-                      }}
-                    >
-                      {p.label || p.ref}
+                <li
+                  key={p.id}
+                  className="flex items-center gap-3 border-2 border-night-700 bg-night-850 p-3 pixel-shadow-sm"
+                >
+                  <span
+                    aria-hidden
+                    className={`h-3.5 w-3.5 shrink-0 ${s.dot}`}
+                    title={s.text}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="truncate font-semibold text-fog-100">
+                        {p.label || p.ref}
+                      </span>
+                      <span className="border border-night-600 px-1.5 text-sm uppercase tracking-wide text-fog-500">
+                        {p.strategy ?? "auth-signup"}
+                      </span>
                       {!p.api_key && (
-                        <span
-                          style={{
-                            fontSize: 11,
-                            color: "#e67e22",
-                            fontWeight: 400,
-                          }}
-                        >
-                          no API key
-                        </span>
+                        <span className="text-sm uppercase text-warn-500">no API key</span>
                       )}
                     </div>
                     {p.label && (
-                      <div style={{ fontSize: 12, color: "#999" }}>
+                      <div className="truncate text-base text-fog-500">
                         {p.ref}.supabase.co
                       </div>
                     )}
-                    <div style={{ fontSize: 12, color: "#bbb", marginTop: 2 }}>
+                    <div className="mt-0.5 text-base text-fog-500">
                       last ping: {timeAgo(p.last_pinged_at)}
                       {p.last_status !== null && (
-                        <span
-                          style={{
-                            marginLeft: 8,
-                            color: badge.color,
-                            fontWeight: 600,
-                          }}
-                        >
-                          {badge.text}
-                        </span>
+                        <span className={`ml-2 font-semibold ${s.textCls}`}>{s.text}</span>
                       )}
                     </div>
                   </div>
-                  <button onClick={() => ping(p.id)} style={pingBtnStyle}>
-                    {activePing === p.id ? "..." : "Ping now"}
+                  <button
+                    type="button"
+                    aria-label={`Ping ${p.label || p.ref} now`}
+                    onClick={() => ping(p.id)}
+                    className={btnGhost}
+                  >
+                    {activePing === p.id ? "···" : "Ping now"}
                   </button>
-                  <button onClick={() => remove(p.id)} style={removeBtnStyle}>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${p.label || p.ref}`}
+                    onClick={() => remove(p.id)}
+                    className={btnDanger}
+                  >
                     Remove
                   </button>
                 </li>
@@ -267,66 +356,10 @@ export default function App() {
           </ul>
         )}
 
-        <p
-          style={{
-            color: "#ddd",
-            fontSize: 12,
-            marginTop: "3rem",
-            textAlign: "center",
-          }}
-        >
-          auto-pings /auth/v1/health every 3 days
+        <p className="mt-12 text-center text-base text-fog-500">
+          auto-pings the auth API every 3 days
         </p>
-      </div>
+      </main>
     </>
   );
 }
-
-const inputStyle: React.CSSProperties = {
-  flex: "2 1 240px",
-  padding: "8px 12px",
-  border: "1px solid #ddd",
-  borderRadius: 6,
-  fontSize: 14,
-  outline: "none",
-};
-
-const addBtnStyle: React.CSSProperties = {
-  padding: "8px 20px",
-  background: "#3ecf8e",
-  color: "#fff",
-  border: "none",
-  borderRadius: 6,
-  cursor: "pointer",
-  fontWeight: 600,
-  fontSize: 14,
-};
-
-const rowStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 10,
-  padding: "12px 0",
-  borderBottom: "1px solid #f0f0f0",
-};
-
-const pingBtnStyle: React.CSSProperties = {
-  padding: "6px 12px",
-  background: "#f5f5f5",
-  border: "1px solid #ddd",
-  borderRadius: 6,
-  cursor: "pointer",
-  fontSize: 13,
-  whiteSpace: "nowrap",
-};
-
-const removeBtnStyle: React.CSSProperties = {
-  padding: "6px 12px",
-  background: "#fff",
-  border: "1px solid #fcc",
-  borderRadius: 6,
-  cursor: "pointer",
-  fontSize: 13,
-  color: "#e74c3c",
-  whiteSpace: "nowrap",
-};
