@@ -2,11 +2,19 @@
 
 Keeps your Supabase free-tier projects alive by auto-pinging every 3 days.
 
-**Live app:** <https://supa-wake.netlify.app>
+**Live app:** <https://supa-wake.netlify.app>  ·  Built by [@Ermegilius](https://github.com/Ermegilius)
+
+![supaWake dashboard](docs/screenshot.png)
 
 Supabase pauses free projects after 7 days of inactivity. supaWake pings each
 registered project every 3 days (`0 0 */3 * *`). You can choose a ping
 strategy per project.
+
+It started as a one-line cron and turned into a small investigation: which API
+call does Supabase actually count as "activity"? Several plausible approaches
+failed (read-only endpoints, signups with fake emails, email rate limits)
+before a clear answer emerged. The full trail is in
+[Ping strategy history](#ping-strategy-history) below.
 
 > **Key finding (verified over 1 week):** only pings that actually touch
 > Postgres keep a project alive. Read-only endpoints like `auth/settings` do
@@ -137,14 +145,24 @@ netlify deploy --prod
 
 ```text
 supaWake/
-├── frontend/          # React + Vite app
-│   └── src/App.tsx
+├── frontend/          # React + Vite + Tailwind v4 (pixel-art UI)
+│   └── src/
+│       ├── App.tsx
+│       └── index.css     # @theme tokens, flashlight beam, utilities
 ├── netlify/
 │   └── functions/
 │       ├── api.mts        # REST API: GET/POST/DELETE /api/projects*
 │       └── cron-ping.mts  # Scheduled ping every 3 days
 ├── backend/           # NestJS app for local dev
 │   └── src/projects/
+├── docs/screenshot.png
 ├── netlify.toml
 └── package.json       # Root deps: @netlify/blobs, @netlify/functions
 ```
+
+## Author
+
+Built by **Vladimir Beliakov** ([@Ermegilius](https://github.com/Ermegilius)).
+
+If you found this useful, a ⭐ on the repo is appreciated, and you're welcome
+to browse my other projects at [github.com/Ermegilius](https://github.com/Ermegilius).

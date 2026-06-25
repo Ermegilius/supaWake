@@ -48,7 +48,10 @@ async function pingRef(
     } else {
       // default: auth-signup (writes to auth.users, keeps project alive)
       const email = wakeEmail || 'wake@mailnull.com';
-      res = await fetch(`https://${ref}.supabase.co/auth/v1/signup`, {
+      // Confirmation link lands on the supaWake app instead of the project's
+      // default localhost Site URL (only honored if allow-listed in the project).
+      const redirectTo = encodeURIComponent('https://supa-wake.netlify.app');
+      res = await fetch(`https://${ref}.supabase.co/auth/v1/signup?redirect_to=${redirectTo}`, {
         method: 'POST', headers,
         body: JSON.stringify({ email, password: 'supawake-keeper-v1' }),
         signal: AbortSignal.timeout(10000),
